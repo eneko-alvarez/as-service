@@ -3,7 +3,7 @@ FROM ubuntu:20.04
 
 # Establecer variables de entorno para evitar interacciones interactivas
 ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONPATH=/opt/acestream:$PYTHONPATH
+ENV PYTHONPATH=/opt/acestream:/opt/acestream/lib:$PYTHONPATH
 ENV LD_LIBRARY_PATH=/opt/acestream/lib:$LD_LIBRARY_PATH
 
 # Actualizar e instalar dependencias básicas
@@ -50,7 +50,8 @@ RUN apt-get update && \
     libqt5gui5 \
     libqt5widgets5 \
     qt5-default \
-    python3-pyqt5 && \
+    python3-pyqt5 \
+    libsodium-dev && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -90,14 +91,15 @@ RUN echo "Configurando bibliotecas de Python..." && \
 RUN mkdir -p /var/log/acestream && \
     chmod 755 /var/log/acestream
 
-# Instalar dependencias del sistema para lxml
+# Instalar dependencias del sistema para lxml y pynacl
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libxml2-dev \
     libxslt1-dev \
     libffi-dev \
     libssl-dev \
-    && apt-get clean && \
+    libsodium-dev && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Crear script para verificar e instalar dependencias de AceStream
@@ -115,6 +117,12 @@ RUN echo '#!/bin/bash' > /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir bencode.py' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir M2Crypto' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir pynacl' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pycryptodome' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pyOpenSSL' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir idna' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir cffi' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir attrs' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir zope.interface' >> /tmp/install_acestream_deps.sh && \
     echo 'echo "Dependencias instaladas"' >> /tmp/install_acestream_deps.sh && \
     chmod +x /tmp/install_acestream_deps.sh
 
@@ -124,7 +132,7 @@ RUN pip3 install --no-cache-dir flask psutil requests && \
 
 # Crear script de inicio que configura el entorno
 RUN echo '#!/bin/bash' > /usr/bin/start-acestream.sh && \
-    echo 'export PYTHONPATH=/opt/acestream:$PYTHONPATH' >> /usr/bin/start-acestream.sh && \
+    echo 'export PYTHONPATH=/opt/acestream:/opt/acestream/lib:$PYTHONPATH' >> /usr/bin/start-acestream.sh && \
     echo 'export LD_LIBRARY_PATH=/opt/acestream/lib:$LD_LIBRARY_PATH' >> /usr/bin/start-acestream.sh && \
     echo 'export DISPLAY=:99' >> /usr/bin/start-acestream.sh && \
     echo 'Xvfb :99 -screen 0 1024x768x24 &' >> /usr/bin/start-acestream.sh && \
@@ -141,6 +149,12 @@ RUN echo "Verificando dependencias Python..." && \
     python3 -c "import twisted; print('twisted: OK')" || echo "twisted: OPTIONAL" && \
     python3 -c "import cryptography; print('cryptography: OK')" || echo "cryptography: OPTIONAL" && \
     python3 -c "import nacl; print('pynacl: OK')" && \
+    python3 -c "import Crypto; print('pycryptodome: OK')" && \
+    python3 -c "import OpenSSL; print('pyOpenSSL: OK')" && \
+    python3 -c "import idna; print('idna: OK')" && \
+    python3 -c "import cffi; print('cffi: OK')" && \
+    python3 -c "import attr; print('attrs: OK')" && \
+    python3 -c "import zope.interface; print('zope.interface: OK')" && \
     echo "Dependencias Python verificadas"
 
 # Verificar instalación final
