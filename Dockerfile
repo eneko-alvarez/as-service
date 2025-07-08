@@ -90,15 +90,30 @@ RUN echo "Configurando bibliotecas de Python..." && \
 RUN mkdir -p /var/log/acestream && \
     chmod 755 /var/log/acestream
 
+# Instalar dependencias del sistema para lxml
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libxml2-dev \
+    libxslt1-dev \
+    libffi-dev \
+    libssl-dev \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Crear script para verificar e instalar dependencias de AceStream
 RUN echo '#!/bin/bash' > /tmp/install_acestream_deps.sh && \
     echo 'echo "Instalando dependencias de AceStream..."' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir lxml' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir apsw --verbose' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir gevent' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir twisted' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir pyasn1' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir cryptography' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir service-identity' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir six' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pycryptodomex' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir bencode.py' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir M2Crypto' >> /tmp/install_acestream_deps.sh && \
     echo 'echo "Dependencias instaladas"' >> /tmp/install_acestream_deps.sh && \
     chmod +x /tmp/install_acestream_deps.sh
 
@@ -119,10 +134,13 @@ RUN echo '#!/bin/bash' > /usr/bin/start-acestream.sh && \
 
 # Verificar que todas las dependencias Python están instaladas
 RUN echo "Verificando dependencias Python..." && \
+    python3 -c "import lxml; print('lxml: OK')" && \
     python3 -c "import apsw; print('apsw: OK')" && \
     python3 -c "import gevent; print('gevent: OK')" || echo "gevent: OPTIONAL" && \
     python3 -c "import twisted; print('twisted: OK')" || echo "twisted: OPTIONAL" && \
+    python3 -c "import cryptography; print('cryptography: OK')" || echo "cryptography: OPTIONAL" && \
     echo "Dependencias Python verificadas"
+
 # Verificar instalación final
 RUN echo "Verificación final..." && \
     which acestreamengine && \

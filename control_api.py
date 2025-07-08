@@ -74,16 +74,27 @@ def is_acestream_working():
         
         # Verificar módulos Python requeridos
         try:
-            result = subprocess.run([acestream_binary, '--help'], capture_output=True, text=True, timeout=10)
-            if "Missing required module" in result.stdout:
+            result = subprocess.run([acestream_binary, '--help'], capture_output=True, text=True, timeout=15)
+            if "Missing required module" in result.stdout or "Missing required module" in result.stderr:
                 missing_modules = []
-                for line in result.stdout.split('\n'):
+                output = result.stdout + result.stderr
+                for line in output.split('\n'):
                     if "No module named" in line:
-                        module_name = line.split("'")[1] if "'" in line else "unknown"
+                        # Extraer el nombre del módulo
+                        if "'" in line:
+                            module_name = line.split("'")[1]
+                        elif '"' in line:
+                            module_name = line.split('"')[1]
+                        else:
+                            module_name = line.split()[-1]
                         missing_modules.append(module_name)
-                return False, f"Missing Python modules: {', '.join(missing_modules)}"
-        except:
-            pass
+                
+                if missing_modules:
+                    return False, f"Missing Python modules: {', '.join(set(missing_modules))}"
+        except subprocess.TimeoutExpired:
+            return False, "AceStream binary timeout"
+        except Exception as e:
+            return False, f"Error testing binary: {str(e)}"
         
         return True, "OK"
         
@@ -225,16 +236,7 @@ def start_stream_internal(stream_id):
         logger.error(f"Error en método principal: {str(e)}")
         return start_stream_alternative(stream_id)
 
-@app.route('/start_stream', methods=['POST'])
-def start_stream():
-    """Endpoint API para iniciar stream"""
-    data = request.json
-    stream_id = data.get('stream_id')
-    
-    if not stream_id:
-        return jsonify({"error": "stream_id required"}), 400
-    
-    return start_stream_internal(stream_id)
+def start_stream_alternative(stream_id):
     """Método alternativo para iniciar stream"""
     try:
         logger.info(f"Intentando método alternativo para stream: {stream_id}")
@@ -270,6 +272,17 @@ def start_stream():
     except Exception as e:
         logger.error(f"Error en método alternativo: {str(e)}")
         return jsonify({"error": f"Error starting stream: {str(e)}"}), 500
+
+@app.route('/start_stream', methods=['POST'])
+def start_stream():
+    """Endpoint API para iniciar stream"""
+    data = request.json
+    stream_id = data.get('stream_id')
+    
+    if not stream_id:
+        return jsonify({"error": "stream_id required"}), 400
+    
+    return start_stream_internal(stream_id)
 
 @app.route('/stop_stream', methods=['POST'])
 def stop_stream():
@@ -461,6 +474,64 @@ def start_daemon():
             "status": "error",
             "message": f"Error iniciando daemon: {str(e)}"
         }), 500
+
+@app.route('/install_missing_deps', methods=['POST'])
+def install_missing_deps():
+    """Instalar dependencias faltantes de Python"""
+    try:
+        acestream_binary = find_acestream_binary()
+        if not acestream_binary:
+            return jsonify({"error": "AceStream binary not found"}), 400
+        
+        # Verificar qué módulos faltan
+        result = subprocess.run([acestream_binary, '--help'], capture_output=True, text=True, timeout=15)
+        missing_modules = []
+        output = result.stdout + result.stderr
+        
+        for line in output.split('\n'):
+            if "No module named" in line:
+                if "'" in line:
+                    module_name = line.split("'")[1]
+                elif '"' in line:
+                    module_name = line.split('"')[1]
+                else:
+                    module_name = line.split()[-1]
+                missing_modules.append(module_name)
+        
+        if not missing_modules:
+            return jsonify({"message": "No missing modules detected"})
+        
+        # Instalar módulos faltantes
+        installed = []
+        failed = []
+        
+        for module in set(missing_modules):
+            try:
+                logger.info(f"Instalando módulo: {module}")
+                install_result = subprocess.run([
+                    'pip3', 'install', '--no-cache-dir', module
+                ], capture_output=True, text=True, timeout=60)
+                
+                if install_result.returncode == 0:
+                    installed.append(module)
+                else:
+                    failed.append(f"{module}: {install_result.stderr}")
+                    logger.error(f"Error instalando {module}: {install_result.stderr}")
+                    
+            except Exception as e:
+                failed.append(f"{module}: {str(e)}")
+                logger.error(f"Error instalando {module}: {str(e)}")
+        
+        return jsonify({
+            "missing_modules": missing_modules,
+            "installed": installed,
+            "failed": failed,
+            "success": len(failed) == 0
+        })
+        
+    except Exception as e:
+        logger.error(f"Error instalando dependencias: {str(e)}")
+        return jsonify({"error": f"Error: {str(e)}"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
