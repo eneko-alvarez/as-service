@@ -51,7 +51,9 @@ RUN apt-get update && \
     libqt5widgets5 \
     qt5-default \
     python3-pyqt5 \
-    libsodium-dev && \
+    libsodium-dev \
+    libc-dev \
+    gcc && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -91,7 +93,7 @@ RUN echo "Configurando bibliotecas de Python..." && \
 RUN mkdir -p /var/log/acestream && \
     chmod 755 /var/log/acestream
 
-# Instalar dependencias del sistema para lxml y pynacl
+# Instalar dependencias del sistema para lxml, pynacl y otras
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libxml2-dev \
@@ -105,33 +107,39 @@ RUN apt-get update && \
 # Crear script para verificar e instalar dependencias de AceStream
 RUN echo '#!/bin/bash' > /tmp/install_acestream_deps.sh && \
     echo 'echo "Instalando dependencias de AceStream..."' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir lxml' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir apsw --verbose' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir gevent' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir twisted' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir pyasn1' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir cryptography' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir service-identity' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir six' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir pycryptodomex' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir bencode.py' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir M2Crypto' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir pynacl' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir pycryptodome' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir pyOpenSSL' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir idna' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir cffi' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir attrs' >> /tmp/install_acestream_deps.sh && \
-    echo 'pip3 install --no-cache-dir zope.interface' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir markupsafe==2.1.3' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir flask==2.0.1' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir psutil==5.9.4' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir requests==2.28.1' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir lxml==4.9.1' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir apsw==3.38.5-r1 --verbose' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir gevent==22.10.2' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir twisted==22.10.0' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pyasn1==0.4.8' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir cryptography==38.0.4' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir service-identity==21.1.0' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir six==1.16.0' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pycryptodomex==3.15.0' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir bencode.py==0.9.5' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir M2Crypto==0.38.0' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pynacl==1.5.0' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pycryptodome==3.15.0' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pyOpenSSL==22.1.0' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir idna==3.4' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir cffi==1.15.1' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir attrs==22.1.0' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir zope.interface==5.4.0' >> /tmp/install_acestream_deps.sh && \
     echo 'echo "Dependencias instaladas"' >> /tmp/install_acestream_deps.sh && \
     chmod +x /tmp/install_acestream_deps.sh
 
-# Instalar dependencias Python incluyendo las específicas de AceStream
-RUN pip3 install --no-cache-dir flask psutil requests && \
+# Instalar dependencias Python
+RUN pip3 install --no-cache-dir --upgrade pip && \
     /tmp/install_acestream_deps.sh
 
-# Crear script de inicio que configura el entorno
+# Crear script de inicio que limpia Xvfb y configura el entorno
 RUN echo '#!/bin/bash' > /usr/bin/start-acestream.sh && \
+    echo 'echo "Limpiando archivo de bloqueo Xvfb..."' >> /usr/bin/start-acestream.sh && \
+    echo 'rm -f /tmp/.X99-lock' >> /usr/bin/start-acestream.sh && \
     echo 'export PYTHONPATH=/opt/acestream:/opt/acestream/lib:$PYTHONPATH' >> /usr/bin/start-acestream.sh && \
     echo 'export LD_LIBRARY_PATH=/opt/acestream/lib:$LD_LIBRARY_PATH' >> /usr/bin/start-acestream.sh && \
     echo 'export DISPLAY=:99' >> /usr/bin/start-acestream.sh && \
@@ -141,8 +149,12 @@ RUN echo '#!/bin/bash' > /usr/bin/start-acestream.sh && \
     echo 'python3 control_api.py' >> /usr/bin/start-acestream.sh && \
     chmod +x /usr/bin/start-acestream.sh
 
-# Verificar que todas las dependencias Python están instaladas
+# Verificar dependencias Python individualmente
 RUN echo "Verificando dependencias Python..." && \
+    python3 -c "import markupsafe; print('markupsafe: OK')" && \
+    python3 -c "import flask; print('flask: OK')" && \
+    python3 -c "import psutil; print('psutil: OK')" && \
+    python3 -c "import requests; print('requests: OK')" && \
     python3 -c "import lxml; print('lxml: OK')" && \
     python3 -c "import apsw; print('apsw: OK')" && \
     python3 -c "import gevent; print('gevent: OK')" || echo "gevent: OPTIONAL" && \
@@ -151,8 +163,10 @@ RUN echo "Verificando dependencias Python..." && \
     python3 -c "import nacl; print('pynacl: OK')" && \
     python3 -c "import Crypto; print('pycryptodome: OK')" && \
     python3 -c "import OpenSSL; print('pyOpenSSL: OK')" && \
+    python3 -c "import idna; print('idna: OK')" && \
     python3 -c "import cffi; print('cffi: OK')" && \
     python3 -c "import attr; print('attrs: OK')" && \
+    python3 -c "import zope.interface; print('zope.interface: OK')" || echo "zope.interface: OPTIONAL" && \
     echo "Dependencias Python verificadas"
 
 # Verificar instalación final
