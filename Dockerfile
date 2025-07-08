@@ -25,20 +25,25 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Instalar acestream-engine desde tar.gz
-RUN wget -q -O /tmp/acestream.tar.gz https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz || { echo "Error descargando tar.gz"; exit 1; } && \
-    echo "Descarga completada" && \
-    mkdir -p /opt/acestream && \
-    tar -xzf /tmp/acestream.tar.gz -C /opt/acestream || { echo "Error descomprimiendo tar.gz"; exit 1; } && \
-    echo "Descompresión completada" && \
+RUN echo "Paso 1: Descargando tar.gz" && \
+    wget -q -O /tmp/acestream.tar.gz https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz || { echo "Error descargando tar.gz"; exit 1; } && \
+    echo "Paso 2: Descarga completada" && \
+    mkdir -p /opt/acestream || { echo "Error creando /opt/acestream"; exit 1; } && \
+    echo "Paso 3: Descomprimiendo tar.gz" && \
+    tar --verbose -xzf /tmp/acestream.tar.gz -C /opt/acestream || { echo "Error descomprimiendo tar.gz"; exit 1; } && \
+    echo "Paso 4: Descompresión completada" && \
     rm -f /tmp/acestream.tar.gz && \
+    echo "Paso 5: Buscando acestreamengine" && \
     find /opt/acestream -type f -name acestreamengine || { echo "acestreamengine no encontrado"; exit 1; } && \
-    echo "Binario encontrado" && \
+    echo "Paso 6: Binario encontrado" && \
     find /opt/acestream -type f -name acestreamengine -exec chmod +x {} \; -exec ln -sf {} /usr/bin/acestreamengine \; || { echo "Error creando enlace simbólico"; exit 1; } && \
-    echo "Enlace simbólico creado" && \
+    echo "Paso 7: Enlace simbólico creado" && \
     ls -lR /opt/acestream || { echo "Error listando /opt/acestream"; exit 1; } && \
-    echo "Listado de /opt/acestream completado" && \
+    echo "Paso 8: Listado de /opt/acestream completado" && \
     which acestreamengine || { echo "acestreamengine no encontrado en /usr/bin"; exit 1; } && \
-    echo "which completado" && \
+    echo "Paso 9: which completado" && \
+    ldd /usr/bin/acestreamengine || { echo "Error ejecutando ldd"; exit 1; } && \
+    echo "Paso 10: ldd completado" && \
     acestreamengine --version || { echo "acestreamengine no ejecutable"; ldd /usr/bin/acestreamengine; exit 1; }
 
 # Instalar dependencias Python
