@@ -1,24 +1,33 @@
-FROM vstavrinov/acestream-engine
+FROM python:3.9-slim
 
-# Cambiar a usuario root temporalmente
+# Cambiar a usuario root
 USER root
 
-# Crear directorio si no existe y actualizar
-RUN mkdir -p /var/lib/apt/lists/partial && \
-    apt-get update && \
-    apt-get install -y python3-pip && \
+# Crear directorio de trabajo
+WORKDIR /app
+
+# Instalar dependencias del sistema
+RUN apt-get update && \
+    apt-get install -y wget curl gnupg2 software-properties-common && \
     apt-get clean && \
-    rm-rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/*
+
+# Instalar AceStream
+RUN wget -qO- http://acestream.org/keys/acestream.asc | apt-key add - && \
+    echo "deb http://repo.acestream.org/ubuntu/ bionic main" > /etc/apt/sources.list.d/acestream.list && \
+    apt-get update && \
+    apt-get install -y acestream-engine && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lis/*
 
 # Instalar dependencias Python
-RUN pip3 install flask psutil requests
+RUN pip install flask psutil requests
 
 # Copiar nuestra API
 COPY control_api.py /app/
-WORKDIR /app
 
 # Exponer puertos
 EXPOSE 8080 6878
 
 # Ejecutar nuestra API
-CMD ["python3", "control_api.py"]
+CMD ["python", "control_api.py"]
