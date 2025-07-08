@@ -133,7 +133,7 @@ def get_status():
         "active_streams": len(active_streams),
         "streams": list(active_streams.keys()),
         "acestream_available": acestream_available,
-        "system": "running"
+        "system": "runninggggg"
     })
 
 # Endpoint para probar comunicación con acestream
