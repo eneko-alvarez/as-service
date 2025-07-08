@@ -114,6 +114,7 @@ RUN echo '#!/bin/bash' > /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir pycryptodomex' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir bencode.py' >> /tmp/install_acestream_deps.sh && \
     echo 'pip3 install --no-cache-dir M2Crypto' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pynacl' >> /tmp/install_acestream_deps.sh && \
     echo 'echo "Dependencias instaladas"' >> /tmp/install_acestream_deps.sh && \
     chmod +x /tmp/install_acestream_deps.sh
 
@@ -139,6 +140,7 @@ RUN echo "Verificando dependencias Python..." && \
     python3 -c "import gevent; print('gevent: OK')" || echo "gevent: OPTIONAL" && \
     python3 -c "import twisted; print('twisted: OK')" || echo "twisted: OPTIONAL" && \
     python3 -c "import cryptography; print('cryptography: OK')" || echo "cryptography: OPTIONAL" && \
+    python3 -c "import nacl; print('pynacl: OK')" && \
     echo "Dependencias Python verificadas"
 
 # Verificar instalación final
