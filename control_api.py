@@ -198,7 +198,15 @@ def test_acestream():
         acestream_binary = find_acestream_binary()
         if acestream_binary:
             logger.debug(f"Probando binario: {acestream_binary}")
+            
+            # Verificar permisos del archivo
+            import stat
+            file_stat = os.stat(acestream_binary)
+            is_executable = bool(file_stat.st_mode & stat.S_IEXEC)
+            
+            # Intentar ejecutar
             result = subprocess.run([acestream_binary, '--version'], capture_output=True, text=True, timeout=10)
+            
             if result.returncode == 0:
                 logger.info("AceStream engine encontrado y funcionando")
                 return jsonify({
@@ -213,7 +221,9 @@ def test_acestream():
                     "status": "error",
                     "message": "AceStream engine no ejecutable",
                     "error": result.stderr,
-                    "path": acestream_binary
+                    "path": acestream_binary,
+                    "is_executable": is_executable,
+                    "return_code": result.returncode
                 })
         else:
             logger.error("AceStream binary no encontrado")
@@ -233,6 +243,56 @@ def test_acestream():
         return jsonify({
             "status": "error",
             "message": f"Error verificando AceStream: {str(e)}"
+        })
+
+@app.route('/debug_acestream', methods=['GET'])
+def debug_acestream():
+    """Endpoint temporal para diagnosticar problemas con AceStream"""
+    try:
+        acestream_binary = find_acestream_binary()
+        debug_info = {
+            "binary_path": acestream_binary,
+            "binary_exists": os.path.exists(acestream_binary) if acestream_binary else False
+        }
+        
+        if acestream_binary and os.path.exists(acestream_binary):
+            import stat
+            file_stat = os.stat(acestream_binary)
+            debug_info.update({
+                "file_size": file_stat.st_size,
+                "is_executable": bool(file_stat.st_mode & stat.S_IEXEC),
+                "permissions": oct(file_stat.st_mode)[-3:]
+            })
+            
+            # Verificar dependencias con ldd
+            try:
+                ldd_result = subprocess.run(['ldd', acestream_binary], capture_output=True, text=True, timeout=10)
+                debug_info["ldd_output"] = ldd_result.stdout
+                debug_info["ldd_stderr"] = ldd_result.stderr
+                debug_info["ldd_returncode"] = ldd_result.returncode
+            except Exception as e:
+                debug_info["ldd_error"] = str(e)
+            
+            # Intentar ejecutar con strace para ver qué falla
+            try:
+                strace_result = subprocess.run(['strace', '-e', 'trace=execve', acestream_binary, '--version'], 
+                                             capture_output=True, text=True, timeout=10)
+                debug_info["strace_output"] = strace_result.stderr[:1000]  # Limitar salida
+            except Exception as e:
+                debug_info["strace_error"] = str(e)
+            
+            # Verificar si es un archivo ELF válido
+            try:
+                file_result = subprocess.run(['file', acestream_binary], capture_output=True, text=True, timeout=5)
+                debug_info["file_type"] = file_result.stdout
+            except Exception as e:
+                debug_info["file_type_error"] = str(e)
+        
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Error en debug: {str(e)}"
         })
 
 if __name__ == '__main__':

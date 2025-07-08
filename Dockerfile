@@ -12,7 +12,9 @@ RUN apt-get update && \
     python3 \
     python3-pip \
     file \
+    strace \
     libpython3.8 \
+    libpython3.8-dev \
     libssl1.1 \
     libavahi-compat-libdnssd1 \
     libcrypto++6 \
@@ -21,7 +23,19 @@ RUN apt-get update && \
     libgcc1 \
     libc6 \
     libffi7 \
-    zlib1g && \
+    zlib1g \
+    libavcodec58 \
+    libavformat58 \
+    libavutil56 \
+    libswscale5 \
+    libswresample3 \
+    libasound2 \
+    libpulse0 \
+    libgl1-mesa-glx \
+    libglu1-mesa \
+    libxrender1 \
+    libxext6 \
+    libx11-6 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
