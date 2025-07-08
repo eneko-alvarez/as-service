@@ -5,6 +5,11 @@ import signal
 import time
 import requests
 import psutil
+import logging
+
+# Configurar logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -28,28 +33,28 @@ def start_stream():
     
     try:
         logger.debug(f"Iniciando stream con ID: {stream_id}")
-        cmd = ["acestreamengine", "--client-console", f"--stream-id={stream_id}", "--port=6878"]
+        cmd = ["/usr/bin/acestreamengine", "--client-console", f"--stream-id={stream_id}", "--port=6878", "--bind-all"]
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            preexec_fn=os.setsid  # Crear un nuevo grupo de procesos para facilitar la terminación
         )
         
-        # Esperar un poco para ver si se inicia
-        time.sleep(5)
+        # Esperar más tiempo para que el stream se inicie
+        time.sleep(15)
         
-        # Capturar salida para depuración
-        stdout, stderr = process.communicate(timeout=10)
-        logger.debug(f"stdout: {stdout}")
-        logger.error(f"stderr: {stderr}")
-        
-        # Verificar si el proceso sigue vivo
+        # Verificar si el proceso sigue vivo sin consumirlo
         if process.poll() is None:
             active_streams[stream_id] = process.pid
-            # Usar el dominio público de Railway o una URL personalizada
             domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'as-service-production.up.railway.app')
             stream_url = f"https://{domain}/ace/getstream?id={stream_id}"
+            
+            # Leer salida inicial para depuración sin esperar a que termine
+            stdout, stderr = process.communicate(timeout=5) if process.poll() is None else ("", "")
+            logger.debug(f"acestreamengine stdout: {stdout}")
+            logger.error(f"acestreamengine stderr: {stderr}")
             
             logger.info(f"Stream iniciado: {stream_id}, URL: {stream_url}")
             return jsonify({
@@ -60,8 +65,9 @@ def start_stream():
                 "method": "acestream-engine"
             })
         else:
-            logger.error(f"acestream-engine falló: {stderr}")
-            raise Exception(f"acestream-engine terminó inesperadamente: {stderr}")
+            stdout, stderr = process.communicate(timeout=5)
+            logger.error(f"acestreamengine falló: {stderr}")
+            raise Exception(f"acestreamengine terminó inesperadamente: {stderr}")
                 
     except Exception as e:
         logger.error(f"Error en método 1: {str(e)}")
@@ -108,64 +114,81 @@ def stop_stream():
     if stream_id and stream_id in active_streams:
         try:
             pid = active_streams[stream_id]
-            os.kill(pid, signal.SIGTERM)
+            os.killpg(os.getpgid(pid), signal.SIGTERM)  # Terminar todo el grupo de procesos
             del active_streams[stream_id]
+            logger.info(f"Stream detenido: {stream_id}")
             return jsonify({"status": "stopped", "stream_id": stream_id})
         except Exception as e:
+            logger.error(f"Error deteniendo stream: {str(e)}")
             return jsonify({"error": f"Error stopping stream: {str(e)}"}), 500
     
-    # Fallback: matar todos los procesos acestream
     stop_all_streams()
+    logger.info("Todos los streams detenidos")
     return jsonify({"status": "all_stopped"})
 
 def stop_all_streams():
     try:
-        # Matar procesos acestream
         for proc in psutil.process_iter(['pid', 'name']):
             if 'acestream' in proc.info['name'].lower():
-                proc.terminate()
-        
-        # Limpiar diccionario
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                logger.debug(f"Terminado proceso: {proc.info['name']} (PID: {proc.pid})")
         active_streams.clear()
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"Error deteniendo streams: {str(e)}")
 
 @app.route('/status', methods=['GET'])
 def get_status():
-    # Verificar que acestream está disponible
     acestream_available = False
     try:
-        result = subprocess.run(['which', 'acestreamengine'], capture_output=True, text=True)
-        acestream_available = result.returncode == 0
-    except:
-        pass
+        result = subprocess.run(['find', '/opt/acestream', '-name', 'acestreamengine'], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout:
+            path = result.stdout.strip()
+            result = subprocess.run([path, '--version'], capture_output=True, text=True)
+            acestream_available = result.returncode == 0
+            logger.debug(f"AceStream disponible: {acestream_available}, path: {path}")
+        else:
+            logger.error("AceStream no encontrado en /opt/acestream")
+    except Exception as e:
+        logger.error(f"Error verificando AceStream: {str(e)}")
     
     return jsonify({
         "active_streams": len(active_streams),
         "streams": list(active_streams.keys()),
         "acestream_available": acestream_available,
-        "system": "runninggggg"
+        "system": "running"
     })
 
-# Endpoint para probar comunicación con acestream
 @app.route('/test_acestream', methods=['GET'])
 def test_acestream():
     try:
-        # Test 1: Verificar si acestream está instalado
-        result = subprocess.run(['which', 'acestreamengine'], capture_output=True, text=True)
-        if result.returncode == 0:
-            return jsonify({
-                "status": "ok",
-                "acestream_path": result.stdout.strip(),
-                "message": "AceStream engine encontrado"
-            })
+        result = subprocess.run(['find', '/opt/acestream', '-name', 'acestreamengine'], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout:
+            path = result.stdout.strip()
+            result = subprocess.run([path, '--version'], capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info("AceStream engine encontrado")
+                return jsonify({
+                    "status": "ok",
+                    "version": result.stdout.strip(),
+                    "message": "AceStream engine encontrado",
+                    "path": path
+                })
+            else:
+                logger.error(f"AceStream no ejecutable: {result.stderr}")
+                return jsonify({
+                    "status": "error",
+                    "message": "AceStream engine no ejecutable",
+                    "error": result.stderr
+                })
         else:
+            logger.error("AceStream engine no encontrado en /opt/acestream")
             return jsonify({
                 "status": "error",
                 "message": "AceStream engine no encontrado",
                 "suggestion": "Verificar instalación"
             })
     except Exception as e:
+        logger.error(f"Error verificando AceStream: {str(e)}")
         return jsonify({
             "status": "error",
             "message": f"Error verificando AceStream: {str(e)}"

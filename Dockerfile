@@ -1,4 +1,3 @@
-# https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz
 # Usar imagen base Ubuntu 20.04
 FROM ubuntu:20.04
 
@@ -14,7 +13,9 @@ RUN apt-get update && \
     python3-pip \
     libpython3.8 \
     libssl1.1 \
-    libavahi-compat-libdnssd1 || { echo "Error instalando dependencias"; exit 1; } && \
+    libavahi-compat-libdnssd1 \
+    libcrypto++6 \
+    libglib2.0-0 || { echo "Error instalando dependencias"; exit 1; } && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -23,7 +24,8 @@ RUN wget -q -O /tmp/acestream.tar.gz https://download.acestream.media/linux/aces
     mkdir -p /opt/acestream && \
     tar -xzf /tmp/acestream.tar.gz -C /opt/acestream && \
     rm -f /tmp/acestream.tar.gz && \
-    ln -s /opt/acestream/acestreamengine /usr/bin/acestreamengine && \
+    find /opt/acestream -type f -name acestreamengine -exec chmod +x {} \; -exec ln -sf {} /usr/bin/acestreamengine \; || { echo "Error creando enlace simbólico"; exit 1; } && \
+    ls -l /opt/acestream || { echo "Error listando /opt/acestream"; exit 1; } && \
     which acestreamengine || { echo "acestreamengine no encontrado en /usr/bin"; exit 1; } && \
     acestreamengine --version || { echo "acestreamengine no ejecutable"; exit 1; }
 
