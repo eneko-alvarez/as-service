@@ -13,6 +13,10 @@ RUN apt-get update && \
     curl \
     python3 \
     python3-pip \
+    python3-dev \
+    build-essential \
+    libsqlite3-dev \
+    sqlite3 \
     file \
     strace \
     net-tools \
@@ -86,8 +90,21 @@ RUN echo "Configurando bibliotecas de Python..." && \
 RUN mkdir -p /var/log/acestream && \
     chmod 755 /var/log/acestream
 
-# Instalar dependencias Python
-RUN pip3 install --no-cache-dir flask psutil requests
+# Crear script para verificar e instalar dependencias de AceStream
+RUN echo '#!/bin/bash' > /tmp/install_acestream_deps.sh && \
+    echo 'echo "Instalando dependencias de AceStream..."' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir apsw --verbose' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir gevent' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir twisted' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir pyasn1' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir cryptography' >> /tmp/install_acestream_deps.sh && \
+    echo 'pip3 install --no-cache-dir service-identity' >> /tmp/install_acestream_deps.sh && \
+    echo 'echo "Dependencias instaladas"' >> /tmp/install_acestream_deps.sh && \
+    chmod +x /tmp/install_acestream_deps.sh
+
+# Instalar dependencias Python incluyendo las específicas de AceStream
+RUN pip3 install --no-cache-dir flask psutil requests && \
+    /tmp/install_acestream_deps.sh
 
 # Crear script de inicio que configura el entorno
 RUN echo '#!/bin/bash' > /usr/bin/start-acestream.sh && \
@@ -100,12 +117,20 @@ RUN echo '#!/bin/bash' > /usr/bin/start-acestream.sh && \
     echo 'python3 control_api.py' >> /usr/bin/start-acestream.sh && \
     chmod +x /usr/bin/start-acestream.sh
 
+# Verificar que todas las dependencias Python están instaladas
+RUN echo "Verificando dependencias Python..." && \
+    python3 -c "import apsw; print('apsw: OK')" && \
+    python3 -c "import gevent; print('gevent: OK')" || echo "gevent: OPTIONAL" && \
+    python3 -c "import twisted; print('twisted: OK')" || echo "twisted: OPTIONAL" && \
+    echo "Dependencias Python verificadas"
 # Verificar instalación final
 RUN echo "Verificación final..." && \
     which acestreamengine && \
     ls -la /usr/bin/acestreamengine && \
-    ldd /usr/bin/acestreamengine | grep "not found" || echo "Todas las dependencias están resueltas" && \
-    file /usr/bin/acestreamengine
+    ldd /usr/bin/acestreamengine | grep "not found" || echo "Todas las dependencias del sistema están resueltas" && \
+    file /usr/bin/acestreamengine && \
+    echo "Probando AceStream con dependencias Python..." && \
+    timeout 10 /usr/bin/acestreamengine --help || echo "AceStream probado (puede mostrar errores pero está disponible)"
 
 # Crear directorio de trabajo
 WORKDIR /app

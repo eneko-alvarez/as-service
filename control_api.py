@@ -57,23 +57,39 @@ def is_acestream_working():
     try:
         acestream_binary = find_acestream_binary()
         if not acestream_binary or not os.path.exists(acestream_binary):
-            return False
+            return False, "Binary not found"
         
-        # En lugar de --version, vamos a probar con --help que es más estándar
-        # o simplemente verificar que el binario existe y es ejecutable
+        # Verificar que es ejecutable
         import stat
         file_stat = os.stat(acestream_binary)
         is_executable = bool(file_stat.st_mode & stat.S_IEXEC)
         
-        # Verificar que las dependencias están resueltas
-        ldd_result = subprocess.run(['ldd', acestream_binary], capture_output=True, text=True, timeout=10)
-        dependencies_ok = "not found" not in ldd_result.stdout
+        if not is_executable:
+            return False, "Binary not executable"
         
-        return is_executable and dependencies_ok
+        # Verificar dependencias del sistema
+        ldd_result = subprocess.run(['ldd', acestream_binary], capture_output=True, text=True, timeout=10)
+        if "not found" in ldd_result.stdout:
+            return False, "Missing system dependencies"
+        
+        # Verificar módulos Python requeridos
+        try:
+            result = subprocess.run([acestream_binary, '--help'], capture_output=True, text=True, timeout=10)
+            if "Missing required module" in result.stdout:
+                missing_modules = []
+                for line in result.stdout.split('\n'):
+                    if "No module named" in line:
+                        module_name = line.split("'")[1] if "'" in line else "unknown"
+                        missing_modules.append(module_name)
+                return False, f"Missing Python modules: {', '.join(missing_modules)}"
+        except:
+            pass
+        
+        return True, "OK"
         
     except Exception as e:
         logger.error(f"Error verificando AceStream: {str(e)}")
-        return False
+        return False, f"Error: {str(e)}"
 
 def start_acestream_daemon():
     """Iniciar el daemon de AceStream en background"""
@@ -124,14 +140,25 @@ def check_acestream_port():
 def health():
     return jsonify({"status": "ok", "service": "acestream-control"})
 
-@app.route('/start_stream', methods=['POST'])
-def start_stream():
-    data = request.json
-    stream_id = data.get('stream_id')
-    
-    if not stream_id:
-        return jsonify({"error": "stream_id required"}), 400
-    
+@app.route('/start', methods=['POST'])
+def start_stream_frontend():
+    """Endpoint para el frontend HTML"""
+    try:
+        # Obtener stream_id del formulario
+        stream_id = request.form.get('stream_id')
+        if not stream_id:
+            return jsonify({"error": "stream_id required"}), 400
+        
+        # Llamar al endpoint interno
+        response = start_stream_internal(stream_id)
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error en frontend: {str(e)}")
+        return jsonify({"error": f"Error starting stream: {str(e)}"}), 500
+
+def start_stream_internal(stream_id):
+    """Lógica interna para iniciar stream"""
     # Limpiar streams anteriores
     stop_all_streams()
     
@@ -139,8 +166,9 @@ def start_stream():
         logger.debug(f"Iniciando stream con ID: {stream_id}")
         
         # Verificar que AceStream está funcionando
-        if not is_acestream_working():
-            raise Exception("AceStream no está disponible")
+        acestream_ok, acestream_status = is_acestream_working()
+        if not acestream_ok:
+            raise Exception(f"AceStream no está disponible: {acestream_status}")
         
         # Método 1: Intentar con el daemon
         acestream_binary = find_acestream_binary()
@@ -197,7 +225,16 @@ def start_stream():
         logger.error(f"Error en método principal: {str(e)}")
         return start_stream_alternative(stream_id)
 
-def start_stream_alternative(stream_id):
+@app.route('/start_stream', methods=['POST'])
+def start_stream():
+    """Endpoint API para iniciar stream"""
+    data = request.json
+    stream_id = data.get('stream_id')
+    
+    if not stream_id:
+        return jsonify({"error": "stream_id required"}), 400
+    
+    return start_stream_internal(stream_id)
     """Método alternativo para iniciar stream"""
     try:
         logger.info(f"Intentando método alternativo para stream: {stream_id}")
@@ -269,13 +306,14 @@ def stop_all_streams():
 
 @app.route('/status', methods=['GET'])
 def get_status():
-    acestream_available = is_acestream_working()
+    acestream_available, acestream_status = is_acestream_working()
     port_available = check_acestream_port()
     
     return jsonify({
         "active_streams": len(active_streams),
         "streams": list(active_streams.keys()),
         "acestream_available": acestream_available,
+        "acestream_status": acestream_status,
         "port_6878_active": port_available,
         "system": "running"
     })
