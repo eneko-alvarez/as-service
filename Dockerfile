@@ -1,4 +1,5 @@
-# Usar imagen base Ubuntu 20.04 para compatibilidad con libpython3.8 y libssl1.1
+# https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz
+# Usar imagen base Ubuntu 20.04
 FROM ubuntu:20.04
 
 # Establecer variables de entorno para evitar interacciones interactivas
@@ -17,10 +18,14 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Instalar acestream-engine manualmente
-RUN wget -q -O /tmp/acestream.deb https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz || { echo "Error descargando paquete .deb"; exit 1; } && \
-    dpkg -i /tmp/acestream.deb || apt-get install -f -y && \
-    rm -f /tmp/acestream.deb
+# Instalar acestream-engine desde tar.gz
+RUN wget -q -O /tmp/acestream.tar.gz https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz || { echo "Error descargando tar.gz"; exit 1; } && \
+    mkdir -p /opt/acestream && \
+    tar -xzf /tmp/acestream.tar.gz -C /opt/acestream && \
+    rm -f /tmp/acestream.tar.gz && \
+    ln -s /opt/acestream/acestreamengine /usr/bin/acestreamengine && \
+    which acestreamengine || { echo "acestreamengine no encontrado en /usr/bin"; exit 1; } && \
+    acestreamengine --version || { echo "acestreamengine no ejecutable"; exit 1; }
 
 # Instalar dependencias Python
 RUN pip3 install --no-cache-dir flask psutil requests

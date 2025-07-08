@@ -21,72 +21,83 @@ def start_stream():
     stream_id = data.get('stream_id')
     
     if not stream_id:
-        return jsonify({"error": "stream_id required"}), 1400
+        return jsonify({"error": "stream_id required"}), 400
     
     # Limpiar streams anteriores
     stop_all_streams()
     
     try:
-        # Método 1: Usar acestream-engine si está disponible
+        logger.debug(f"Iniciando stream con ID: {stream_id}")
+        cmd = ["acestreamengine", "--client-console", f"--stream-id={stream_id}", "--port=6878"]
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Esperar un poco para ver si se inicia
+        time.sleep(5)
+        
+        # Capturar salida para depuración
+        stdout, stderr = process.communicate(timeout=10)
+        logger.debug(f"stdout: {stdout}")
+        logger.error(f"stderr: {stderr}")
+        
+        # Verificar si el proceso sigue vivo
+        if process.poll() is None:
+            active_streams[stream_id] = process.pid
+            # Usar el dominio público de Railway o una URL personalizada
+            domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'as-service-production.up.railway.app')
+            stream_url = f"https://{domain}/ace/getstream?id={stream_id}"
+            
+            logger.info(f"Stream iniciado: {stream_id}, URL: {stream_url}")
+            return jsonify({
+                "status": "started",
+                "stream_id": stream_id,
+                "stream_url": stream_url,
+                "pid": process.pid,
+                "method": "acestream-engine"
+            })
+        else:
+            logger.error(f"acestream-engine falló: {stderr}")
+            raise Exception(f"acestream-engine terminó inesperadamente: {stderr}")
+                
+    except Exception as e:
+        logger.error(f"Error en método 1: {str(e)}")
+        
+        # Método 2: Intentar con el servicio web existente
         try:
-            # Comando básico de acestream
-            cmd = f"acestreamengine --client-console --stream-id={stream_id} --port=6878"
-            process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            
-            # Esperar un poco para ver si se inicia
-            time.sleep(3)
-            
-            # Verificar si el proceso sigue vivo
-            if process.poll() is None:
-                # Proceso sigue corriendo
-                active_streams[stream_id] = process.pid
-                
-                # Construir URL del stream
-                domain = os.environ.get('RAILWAY_STATIC_URL', os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'localhost'))
-                if 'railway.app' in str(domain):
-                    stream_url = f"https://{domain}/ace/getstream?id={stream_id}"
-                else:
-                    stream_url = f"http://localhost:6878/ace/getstream?id={stream_id}"
-                
+            service_url = "http://localhost:8080/search.m3u"
+            logger.debug(f"Probando servicio web: {service_url}")
+            response = requests.get(service_url, timeout=5)
+            if response.status_code == 200:
+                logger.info("Servicio web encontrado")
                 return jsonify({
                     "status": "started",
                     "stream_id": stream_id,
-                    "stream_url": stream_url,
-                    "pid": process.pid,
-                    "method": "acestream-engine"
+                    "stream_url": f"http://localhost:8080/search.m3u?id={stream_id}",
+                    "method": "web-service"
                 })
             else:
-                # Proceso murió inmediatamente
-                raise Exception("acestream-engine terminó inesperadamente")
-                
-        except Exception as e:
-            # Si no funciona, intentar con el servicio docker existente
-            try:
-                # Intentar comunicarse con el servicio web existente
-                service_url = "http://localhost:8080/search.m3u"
-                response = requests.get(service_url, timeout=5)
-                if response.status_code == 200:
-                    # El servicio web funciona
-                    return jsonify({
-                        "status": "started",
-                        "stream_id": stream_id,
-                        "stream_url": f"http://localhost:8080/search.m3u?id={stream_id}",
-                        "method": "web-service"
-                    })
-                else:
-                    raise Exception("Web service no responde")
-            except:
-                # Como último recurso, usar un servicio externo
-                external_url = f"http://127.0.0.1:6878/ace/getstream?id={stream_id}"
-                return jsonify({
-                    "status": "started",
-                    "stream_id": stream_id,
-                    "stream_url": external_url,
-                    "method": "external",
-                    "message": "Stream preparado - puede que necesite unos segundos para iniciar"
-                })
+                raise Exception(f"Web service respondió con código {response.status_code}")
+        except Exception as e2:
+            logger.error(f"Error en método 2: {str(e2)}")
+            
+            # Método 3: Usar URL externa como fallback
+            domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'as-service-production.up.railway.app')
+            external_url = f"https://{domain}/ace/getstream?id={stream_id}"
+            logger.warning(f"Usando fallback externo: {external_url}")
+            return jsonify({
+                "status": "started",
+                "stream_id": stream_id,
+                "stream_url": external_url,
+                "method": "external",
+                "message": "Stream preparado - puede que necesite unos segundos para iniciar"
+            })
         
     except Exception as e:
+        logger.error(f"Error general: {str(e)}")
         return jsonify({"error": f"Error starting stream: {str(e)}"}), 500
 
 @app.route('/stop_stream', methods=['POST'])
