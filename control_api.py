@@ -39,19 +39,16 @@ def start_stream():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            preexec_fn=os.setsid  # Crear un nuevo grupo de procesos para facilitar la terminación
+            preexec_fn=os.setsid
         )
         
-        # Esperar más tiempo para que el stream se inicie
         time.sleep(15)
         
-        # Verificar si el proceso sigue vivo sin consumirlo
         if process.poll() is None:
             active_streams[stream_id] = process.pid
             domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'as-service-production.up.railway.app')
             stream_url = f"https://{domain}/ace/getstream?id={stream_id}"
             
-            # Leer salida inicial para depuración sin esperar a que termine
             stdout, stderr = process.communicate(timeout=5) if process.poll() is None else ("", "")
             logger.debug(f"acestreamengine stdout: {stdout}")
             logger.error(f"acestreamengine stderr: {stderr}")
@@ -72,7 +69,6 @@ def start_stream():
     except Exception as e:
         logger.error(f"Error en método 1: {str(e)}")
         
-        # Método 2: Intentar con el servicio web existente
         try:
             service_url = "http://localhost:8080/search.m3u"
             logger.debug(f"Probando servicio web: {service_url}")
@@ -90,7 +86,6 @@ def start_stream():
         except Exception as e2:
             logger.error(f"Error en método 2: {str(e2)}")
             
-            # Método 3: Usar URL externa como fallback
             domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'as-service-production.up.railway.app')
             external_url = f"https://{domain}/ace/getstream?id={stream_id}"
             logger.warning(f"Usando fallback externo: {external_url}")
@@ -114,7 +109,7 @@ def stop_stream():
     if stream_id and stream_id in active_streams:
         try:
             pid = active_streams[stream_id]
-            os.killpg(os.getpgid(pid), signal.SIGTERM)  # Terminar todo el grupo de procesos
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
             del active_streams[stream_id]
             logger.info(f"Stream detenido: {stream_id}")
             return jsonify({"status": "stopped", "stream_id": stream_id})
