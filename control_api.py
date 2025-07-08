@@ -16,6 +16,40 @@ app = Flask(__name__)
 # Almacenar PIDs activos
 active_streams = {}
 
+def find_acestream_binary():
+    """Buscar y devolver el path del binario principal de AceStream"""
+    try:
+        # Buscar binarios
+        result = subprocess.run(['find', '/opt/acestream', '-name', 'acestreamengine', '-type', 'f'], 
+                              capture_output=True, text=True)
+        
+        if result.returncode == 0 and result.stdout:
+            paths = result.stdout.strip().split('\n')
+            logger.debug(f"Binarios encontrados: {paths}")
+            
+            # Filtrar para evitar el de /lib/ y tomar el principal
+            main_binary = None
+            for path in paths:
+                if path and '/lib/' not in path:
+                    main_binary = path
+                    break
+            
+            # Si no encontramos uno principal, usar el primero
+            if not main_binary and paths:
+                main_binary = paths[0]
+            
+            logger.debug(f"Binario seleccionado: {main_binary}")
+            return main_binary
+        
+        # Fallback: intentar con el enlace simbólico
+        if os.path.exists('/usr/bin/acestreamengine'):
+            return '/usr/bin/acestreamengine'
+            
+    except Exception as e:
+        logger.error(f"Error buscando binario: {str(e)}")
+    
+    return None
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({"status": "ok", "service": "acestream-control"})
@@ -33,7 +67,13 @@ def start_stream():
     
     try:
         logger.debug(f"Iniciando stream con ID: {stream_id}")
-        cmd = ["/usr/bin/acestreamengine", "--client-console", f"--stream-id={stream_id}", "--port=6878", "--bind-all"]
+        
+        # Buscar el binario correcto
+        acestream_binary = find_acestream_binary()
+        if not acestream_binary:
+            raise Exception("AceStream binary not found")
+        
+        cmd = [acestream_binary, "--client-console", f"--stream-id={stream_id}", "--port=6878", "--bind-all"]
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -135,14 +175,13 @@ def stop_all_streams():
 def get_status():
     acestream_available = False
     try:
-        result = subprocess.run(['find', '/opt/acestream', '-name', 'acestreamengine'], capture_output=True, text=True)
-        if result.returncode == 0 and result.stdout:
-            path = result.stdout.strip()
-            result = subprocess.run([path, '--version'], capture_output=True, text=True)
+        acestream_binary = find_acestream_binary()
+        if acestream_binary:
+            result = subprocess.run([acestream_binary, '--version'], capture_output=True, text=True, timeout=10)
             acestream_available = result.returncode == 0
-            logger.debug(f"AceStream disponible: {acestream_available}, path: {path}")
+            logger.debug(f"AceStream disponible: {acestream_available}, path: {acestream_binary}")
         else:
-            logger.error("AceStream no encontrado en /opt/acestream")
+            logger.error("AceStream binary no encontrado")
     except Exception as e:
         logger.error(f"Error verificando AceStream: {str(e)}")
     
@@ -156,32 +195,39 @@ def get_status():
 @app.route('/test_acestream', methods=['GET'])
 def test_acestream():
     try:
-        result = subprocess.run(['find', '/opt/acestream', '-name', 'acestreamengine'], capture_output=True, text=True)
-        if result.returncode == 0 and result.stdout:
-            path = result.stdout.strip()
-            result = subprocess.run([path, '--version'], capture_output=True, text=True)
+        acestream_binary = find_acestream_binary()
+        if acestream_binary:
+            logger.debug(f"Probando binario: {acestream_binary}")
+            result = subprocess.run([acestream_binary, '--version'], capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
-                logger.info("AceStream engine encontrado")
+                logger.info("AceStream engine encontrado y funcionando")
                 return jsonify({
                     "status": "ok",
                     "version": result.stdout.strip(),
-                    "message": "AceStream engine encontrado",
-                    "path": path
+                    "message": "AceStream engine encontrado y funcionando",
+                    "path": acestream_binary
                 })
             else:
                 logger.error(f"AceStream no ejecutable: {result.stderr}")
                 return jsonify({
                     "status": "error",
                     "message": "AceStream engine no ejecutable",
-                    "error": result.stderr
+                    "error": result.stderr,
+                    "path": acestream_binary
                 })
         else:
-            logger.error("AceStream engine no encontrado en /opt/acestream")
+            logger.error("AceStream binary no encontrado")
             return jsonify({
                 "status": "error",
-                "message": "AceStream engine no encontrado",
-                "suggestion": "Verificar instalación"
+                "message": "AceStream binary no encontrado",
+                "suggestion": "Verificar instalación en /opt/acestream"
             })
+    except subprocess.TimeoutExpired:
+        logger.error("Timeout ejecutando AceStream")
+        return jsonify({
+            "status": "error",
+            "message": "Timeout ejecutando AceStream"
+        })
     except Exception as e:
         logger.error(f"Error verificando AceStream: {str(e)}")
         return jsonify({

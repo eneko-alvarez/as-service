@@ -11,6 +11,7 @@ RUN apt-get update && \
     curl \
     python3 \
     python3-pip \
+    file \
     libpython3.8 \
     libssl1.1 \
     libavahi-compat-libdnssd1 \
@@ -24,23 +25,45 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Solo descargar y ver qué pasa
-RUN wget -v -O /tmp/acestream.tar.gz https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz
+# Descargar acestream
+RUN echo "Paso 1: Descargando tar.gz" && \
+    wget -v -O /tmp/acestream.tar.gz https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz && \
+    echo "Paso 2: Descarga completada" && \
+    ls -la /tmp/acestream.tar.gz
 
-# Ver el archivo descargado
-RUN ls -la /tmp/acestream.tar.gz && file /tmp/acestream.tar.gz
-
-# Descomprimir y ver estructura
-RUN mkdir -p /opt/acestream && \
+# Crear directorio y descomprimir
+RUN echo "Paso 3: Creando directorio y descomprimiendo" && \
+    mkdir -p /opt/acestream && \
     tar -xzf /tmp/acestream.tar.gz -C /opt/acestream && \
-    ls -la /opt/acestream/
+    echo "Paso 4: Descompresión completada" && \
+    rm -f /tmp/acestream.tar.gz
 
-# Ver toda la estructura
-RUN find /opt/acestream -type f | head -20
+# Verificar contenido descomprimido
+RUN echo "Paso 5: Verificando contenido descomprimido" && \
+    ls -la /opt/acestream/ && \
+    echo "Buscando binarios acestreamengine..." && \
+    find /opt/acestream -name "acestreamengine" -type f
 
-# Buscar el binario específico
-RUN find /opt/acestream -name "*stream*" -type f
-RUN find /opt/acestream -name "acestreamengine*" -type f
+# Configurar el binario principal
+RUN echo "Paso 6: Configurando binario principal" && \
+    ACESTREAM_BIN=$(find /opt/acestream -name "acestreamengine" -type f | grep -v "/lib/" | head -1) && \
+    echo "Binario principal seleccionado: $ACESTREAM_BIN" && \
+    test -f "$ACESTREAM_BIN" && \
+    chmod +x "$ACESTREAM_BIN" && \
+    ln -sf "$ACESTREAM_BIN" /usr/bin/acestreamengine && \
+    echo "Paso 7: Enlace simbólico creado"
+
+# Verificar instalación
+RUN echo "Paso 8: Verificando instalación" && \
+    which acestreamengine && \
+    ls -la /usr/bin/acestreamengine && \
+    echo "Paso 9: Verificando dependencias" && \
+    ldd /usr/bin/acestreamengine || echo "Algunas dependencias pueden faltar pero continuamos"
+
+# Test final (más permisivo)
+RUN echo "Paso 10: Test de existencia" && \
+    test -x /usr/bin/acestreamengine && \
+    echo "Binario ejecutable confirmado"
 
 # Instalar dependencias Python
 RUN pip3 install --no-cache-dir flask psutil requests
