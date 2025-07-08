@@ -3,6 +3,8 @@ FROM ubuntu:20.04
 
 # Establecer variables de entorno para evitar interacciones interactivas
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONPATH=/opt/acestream:$PYTHONPATH
+ENV LD_LIBRARY_PATH=/opt/acestream/lib:$LD_LIBRARY_PATH
 
 # Actualizar e instalar dependencias básicas
 RUN apt-get update && \
@@ -13,6 +15,8 @@ RUN apt-get update && \
     python3-pip \
     file \
     strace \
+    net-tools \
+    procps \
     libpython3.8 \
     libpython3.8-dev \
     libssl1.1 \
@@ -35,52 +39,73 @@ RUN apt-get update && \
     libglu1-mesa \
     libxrender1 \
     libxext6 \
-    libx11-6 && \
+    libx11-6 \
+    xvfb \
+    libgtk-3-0 \
+    libqt5core5a \
+    libqt5gui5 \
+    libqt5widgets5 \
+    qt5-default \
+    python3-pyqt5 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Descargar acestream
-RUN echo "Paso 1: Descargando tar.gz" && \
+RUN echo "Descargando AceStream..." && \
     wget -v -O /tmp/acestream.tar.gz https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz && \
-    echo "Paso 2: Descarga completada" && \
+    echo "Descarga completada" && \
     ls -la /tmp/acestream.tar.gz
 
 # Crear directorio y descomprimir
-RUN echo "Paso 3: Creando directorio y descomprimiendo" && \
+RUN echo "Descomprimiendo AceStream..." && \
     mkdir -p /opt/acestream && \
     tar -xzf /tmp/acestream.tar.gz -C /opt/acestream && \
-    echo "Paso 4: Descompresión completada" && \
-    rm -f /tmp/acestream.tar.gz
+    rm -f /tmp/acestream.tar.gz && \
+    echo "Contenido descomprimido:" && \
+    ls -la /opt/acestream/
 
-# Verificar contenido descomprimido
-RUN echo "Paso 5: Verificando contenido descomprimido" && \
-    ls -la /opt/acestream/ && \
-    echo "Buscando binarios acestreamengine..." && \
-    find /opt/acestream -name "acestreamengine" -type f
-
-# Configurar el binario principal
-RUN echo "Paso 6: Configurando binario principal" && \
+# Encontrar y configurar el binario principal
+RUN echo "Configurando binario principal..." && \
     ACESTREAM_BIN=$(find /opt/acestream -name "acestreamengine" -type f | grep -v "/lib/" | head -1) && \
-    echo "Binario principal seleccionado: $ACESTREAM_BIN" && \
-    test -f "$ACESTREAM_BIN" && \
-    chmod +x "$ACESTREAM_BIN" && \
-    ln -sf "$ACESTREAM_BIN" /usr/bin/acestreamengine && \
-    echo "Paso 7: Enlace simbólico creado"
+    echo "Binario encontrado: $ACESTREAM_BIN" && \
+    if [ -f "$ACESTREAM_BIN" ]; then \
+        chmod +x "$ACESTREAM_BIN" && \
+        ln -sf "$ACESTREAM_BIN" /usr/bin/acestreamengine && \
+        echo "Binario configurado correctamente"; \
+    else \
+        echo "Error: No se encontró el binario principal"; \
+        exit 1; \
+    fi
 
-# Verificar instalación
-RUN echo "Paso 8: Verificando instalación" && \
-    which acestreamengine && \
-    ls -la /usr/bin/acestreamengine && \
-    echo "Paso 9: Verificando dependencias" && \
-    ldd /usr/bin/acestreamengine || echo "Algunas dependencias pueden faltar pero continuamos"
+# Configurar bibliotecas de Python de AceStream
+RUN echo "Configurando bibliotecas de Python..." && \
+    find /opt/acestream -name "*.py" -type f | head -5 && \
+    find /opt/acestream -name "lib" -type d | head -5
 
-# Test final (más permisivo)
-RUN echo "Paso 10: Test de existencia" && \
-    test -x /usr/bin/acestreamengine && \
-    echo "Binario ejecutable confirmado"
+# Crear directorio de logs
+RUN mkdir -p /var/log/acestream && \
+    chmod 755 /var/log/acestream
 
 # Instalar dependencias Python
 RUN pip3 install --no-cache-dir flask psutil requests
+
+# Crear script de inicio que configura el entorno
+RUN echo '#!/bin/bash' > /usr/bin/start-acestream.sh && \
+    echo 'export PYTHONPATH=/opt/acestream:$PYTHONPATH' >> /usr/bin/start-acestream.sh && \
+    echo 'export LD_LIBRARY_PATH=/opt/acestream/lib:$LD_LIBRARY_PATH' >> /usr/bin/start-acestream.sh && \
+    echo 'export DISPLAY=:99' >> /usr/bin/start-acestream.sh && \
+    echo 'Xvfb :99 -screen 0 1024x768x24 &' >> /usr/bin/start-acestream.sh && \
+    echo 'sleep 2' >> /usr/bin/start-acestream.sh && \
+    echo 'cd /app' >> /usr/bin/start-acestream.sh && \
+    echo 'python3 control_api.py' >> /usr/bin/start-acestream.sh && \
+    chmod +x /usr/bin/start-acestream.sh
+
+# Verificar instalación final
+RUN echo "Verificación final..." && \
+    which acestreamengine && \
+    ls -la /usr/bin/acestreamengine && \
+    ldd /usr/bin/acestreamengine | grep "not found" || echo "Todas las dependencias están resueltas" && \
+    file /usr/bin/acestreamengine
 
 # Crear directorio de trabajo
 WORKDIR /app
@@ -91,5 +116,5 @@ COPY control_api.py /app/
 # Exponer puertos
 EXPOSE 8080 6878
 
-# Ejecutar la API
-CMD ["python3", "control_api.py"]
+# Ejecutar usando el script de inicio
+CMD ["/usr/bin/start-acestream.sh"]

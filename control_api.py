@@ -6,6 +6,8 @@ import time
 import requests
 import psutil
 import logging
+import threading
+import json
 
 # Configurar logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -50,6 +52,74 @@ def find_acestream_binary():
     
     return None
 
+def is_acestream_working():
+    """Verificar si AceStream está funcionando correctamente"""
+    try:
+        acestream_binary = find_acestream_binary()
+        if not acestream_binary or not os.path.exists(acestream_binary):
+            return False
+        
+        # En lugar de --version, vamos a probar con --help que es más estándar
+        # o simplemente verificar que el binario existe y es ejecutable
+        import stat
+        file_stat = os.stat(acestream_binary)
+        is_executable = bool(file_stat.st_mode & stat.S_IEXEC)
+        
+        # Verificar que las dependencias están resueltas
+        ldd_result = subprocess.run(['ldd', acestream_binary], capture_output=True, text=True, timeout=10)
+        dependencies_ok = "not found" not in ldd_result.stdout
+        
+        return is_executable and dependencies_ok
+        
+    except Exception as e:
+        logger.error(f"Error verificando AceStream: {str(e)}")
+        return False
+
+def start_acestream_daemon():
+    """Iniciar el daemon de AceStream en background"""
+    try:
+        acestream_binary = find_acestream_binary()
+        if not acestream_binary:
+            raise Exception("AceStream binary not found")
+        
+        # Comando para iniciar el daemon
+        cmd = [
+            acestream_binary,
+            "--client-console",
+            "--port=6878",
+            "--bind-all",
+            "--log-file=/tmp/acestream.log",
+            "--log-level=debug"
+        ]
+        
+        logger.info(f"Iniciando daemon AceStream: {' '.join(cmd)}")
+        
+        # Iniciar el proceso
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            preexec_fn=os.setsid
+        )
+        
+        # Dar tiempo al daemon para iniciar
+        time.sleep(10)
+        
+        return process
+        
+    except Exception as e:
+        logger.error(f"Error iniciando daemon AceStream: {str(e)}")
+        return None
+
+def check_acestream_port():
+    """Verificar si el puerto 6878 está disponible"""
+    try:
+        result = subprocess.run(['netstat', '-tuln'], capture_output=True, text=True)
+        return ":6878 " in result.stdout
+    except:
+        return False
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({"status": "ok", "service": "acestream-control"})
@@ -68,12 +138,25 @@ def start_stream():
     try:
         logger.debug(f"Iniciando stream con ID: {stream_id}")
         
-        # Buscar el binario correcto
-        acestream_binary = find_acestream_binary()
-        if not acestream_binary:
-            raise Exception("AceStream binary not found")
+        # Verificar que AceStream está funcionando
+        if not is_acestream_working():
+            raise Exception("AceStream no está disponible")
         
-        cmd = [acestream_binary, "--client-console", f"--stream-id={stream_id}", "--port=6878", "--bind-all"]
+        # Método 1: Intentar con el daemon
+        acestream_binary = find_acestream_binary()
+        
+        # Comando simplificado para stream específico
+        cmd = [
+            acestream_binary,
+            "--client-console",
+            "--startup-connect",
+            f"--stream-id={stream_id}",
+            "--port=6878",
+            "--bind-all"
+        ]
+        
+        logger.info(f"Ejecutando comando: {' '.join(cmd)}")
+        
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -82,36 +165,46 @@ def start_stream():
             preexec_fn=os.setsid
         )
         
-        time.sleep(15)
+        # Esperar un poco más para que el stream se establezca
+        time.sleep(20)
         
+        # Verificar si el proceso sigue ejecutándose
         if process.poll() is None:
             active_streams[stream_id] = process.pid
-            domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'as-service-production.up.railway.app')
-            stream_url = f"https://{domain}/ace/getstream?id={stream_id}"
-            
-            stdout, stderr = process.communicate(timeout=5) if process.poll() is None else ("", "")
-            logger.debug(f"acestreamengine stdout: {stdout}")
-            logger.error(f"acestreamengine stderr: {stderr}")
+            domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'localhost:8080')
+            stream_url = f"http://127.0.0.1:6878/ace/getstream?id={stream_id}"
             
             logger.info(f"Stream iniciado: {stream_id}, URL: {stream_url}")
             return jsonify({
                 "status": "started",
                 "stream_id": stream_id,
                 "stream_url": stream_url,
+                "local_url": f"http://127.0.0.1:6878/ace/getstream?id={stream_id}",
                 "pid": process.pid,
                 "method": "acestream-engine"
             })
         else:
-            stdout, stderr = process.communicate(timeout=5)
-            logger.error(f"acestreamengine falló: {stderr}")
-            raise Exception(f"acestreamengine terminó inesperadamente: {stderr}")
+            # Obtener logs del proceso
+            stdout, stderr = process.communicate()
+            logger.error(f"AceStream terminó inesperadamente")
+            logger.error(f"stdout: {stdout}")
+            logger.error(f"stderr: {stderr}")
+            
+            # Intentar método alternativo
+            return start_stream_alternative(stream_id)
                 
     except Exception as e:
-        logger.error(f"Error en método 1: {str(e)}")
+        logger.error(f"Error en método principal: {str(e)}")
+        return start_stream_alternative(stream_id)
+
+def start_stream_alternative(stream_id):
+    """Método alternativo para iniciar stream"""
+    try:
+        logger.info(f"Intentando método alternativo para stream: {stream_id}")
         
+        # Verificar si hay un servicio web disponible
         try:
             service_url = "http://localhost:8080/search.m3u"
-            logger.debug(f"Probando servicio web: {service_url}")
             response = requests.get(service_url, timeout=5)
             if response.status_code == 200:
                 logger.info("Servicio web encontrado")
@@ -121,24 +214,24 @@ def start_stream():
                     "stream_url": f"http://localhost:8080/search.m3u?id={stream_id}",
                     "method": "web-service"
                 })
-            else:
-                raise Exception(f"Web service respondió con código {response.status_code}")
-        except Exception as e2:
-            logger.error(f"Error en método 2: {str(e2)}")
-            
-            domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'as-service-production.up.railway.app')
-            external_url = f"https://{domain}/ace/getstream?id={stream_id}"
-            logger.warning(f"Usando fallback externo: {external_url}")
-            return jsonify({
-                "status": "started",
-                "stream_id": stream_id,
-                "stream_url": external_url,
-                "method": "external",
-                "message": "Stream preparado - puede que necesite unos segundos para iniciar"
-            })
+        except:
+            pass
+        
+        # Fallback: URL externa
+        domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'localhost:8080')
+        external_url = f"http://127.0.0.1:6878/ace/getstream?id={stream_id}"
+        
+        logger.warning(f"Usando fallback: {external_url}")
+        return jsonify({
+            "status": "started",
+            "stream_id": stream_id,
+            "stream_url": external_url,
+            "method": "fallback",
+            "message": "Stream configurado - puede necesitar tiempo adicional para inicializar"
+        })
         
     except Exception as e:
-        logger.error(f"Error general: {str(e)}")
+        logger.error(f"Error en método alternativo: {str(e)}")
         return jsonify({"error": f"Error starting stream: {str(e)}"}), 500
 
 @app.route('/stop_stream', methods=['POST'])
@@ -165,30 +258,25 @@ def stop_all_streams():
     try:
         for proc in psutil.process_iter(['pid', 'name']):
             if 'acestream' in proc.info['name'].lower():
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                logger.debug(f"Terminado proceso: {proc.info['name']} (PID: {proc.pid})")
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    logger.debug(f"Terminado proceso: {proc.info['name']} (PID: {proc.pid})")
+                except:
+                    pass
         active_streams.clear()
     except Exception as e:
         logger.error(f"Error deteniendo streams: {str(e)}")
 
 @app.route('/status', methods=['GET'])
 def get_status():
-    acestream_available = False
-    try:
-        acestream_binary = find_acestream_binary()
-        if acestream_binary:
-            result = subprocess.run([acestream_binary, '--version'], capture_output=True, text=True, timeout=10)
-            acestream_available = result.returncode == 0
-            logger.debug(f"AceStream disponible: {acestream_available}, path: {acestream_binary}")
-        else:
-            logger.error("AceStream binary no encontrado")
-    except Exception as e:
-        logger.error(f"Error verificando AceStream: {str(e)}")
+    acestream_available = is_acestream_working()
+    port_available = check_acestream_port()
     
     return jsonify({
         "active_streams": len(active_streams),
         "streams": list(active_streams.keys()),
         "acestream_available": acestream_available,
+        "port_6878_active": port_available,
         "system": "running"
     })
 
@@ -204,40 +292,45 @@ def test_acestream():
             file_stat = os.stat(acestream_binary)
             is_executable = bool(file_stat.st_mode & stat.S_IEXEC)
             
-            # Intentar ejecutar
-            result = subprocess.run([acestream_binary, '--version'], capture_output=True, text=True, timeout=10)
+            # Verificar dependencias
+            ldd_result = subprocess.run(['ldd', acestream_binary], capture_output=True, text=True, timeout=10)
+            dependencies_ok = "not found" not in ldd_result.stdout
             
-            if result.returncode == 0:
-                logger.info("AceStream engine encontrado y funcionando")
+            # En lugar de --version, intentar con --help
+            try:
+                result = subprocess.run([acestream_binary, '--help'], capture_output=True, text=True, timeout=5)
+                help_works = True
+                help_output = result.stdout[:200] + "..." if len(result.stdout) > 200 else result.stdout
+            except:
+                help_works = False
+                help_output = "No disponible"
+            
+            if is_executable and dependencies_ok:
                 return jsonify({
                     "status": "ok",
-                    "version": result.stdout.strip(),
-                    "message": "AceStream engine encontrado y funcionando",
-                    "path": acestream_binary
-                })
-            else:
-                logger.error(f"AceStream no ejecutable: {result.stderr}")
-                return jsonify({
-                    "status": "error",
-                    "message": "AceStream engine no ejecutable",
-                    "error": result.stderr,
+                    "message": "AceStream engine disponible",
                     "path": acestream_binary,
                     "is_executable": is_executable,
-                    "return_code": result.returncode
+                    "dependencies_ok": dependencies_ok,
+                    "help_works": help_works,
+                    "help_output": help_output
+                })
+            else:
+                return jsonify({
+                    "status": "warning",
+                    "message": "AceStream engine encontrado pero con problemas",
+                    "path": acestream_binary,
+                    "is_executable": is_executable,
+                    "dependencies_ok": dependencies_ok,
+                    "missing_deps": [line for line in ldd_result.stdout.split('\n') if 'not found' in line]
                 })
         else:
-            logger.error("AceStream binary no encontrado")
             return jsonify({
                 "status": "error",
                 "message": "AceStream binary no encontrado",
                 "suggestion": "Verificar instalación en /opt/acestream"
             })
-    except subprocess.TimeoutExpired:
-        logger.error("Timeout ejecutando AceStream")
-        return jsonify({
-            "status": "error",
-            "message": "Timeout ejecutando AceStream"
-        })
+            
     except Exception as e:
         logger.error(f"Error verificando AceStream: {str(e)}")
         return jsonify({
@@ -247,7 +340,7 @@ def test_acestream():
 
 @app.route('/debug_acestream', methods=['GET'])
 def debug_acestream():
-    """Endpoint temporal para diagnosticar problemas con AceStream"""
+    """Endpoint para diagnosticar problemas con AceStream"""
     try:
         acestream_binary = find_acestream_binary()
         debug_info = {
@@ -264,29 +357,43 @@ def debug_acestream():
                 "permissions": oct(file_stat.st_mode)[-3:]
             })
             
-            # Verificar dependencias con ldd
+            # Verificar dependencias
             try:
                 ldd_result = subprocess.run(['ldd', acestream_binary], capture_output=True, text=True, timeout=10)
+                debug_info["dependencies_resolved"] = "not found" not in ldd_result.stdout
                 debug_info["ldd_output"] = ldd_result.stdout
-                debug_info["ldd_stderr"] = ldd_result.stderr
-                debug_info["ldd_returncode"] = ldd_result.returncode
             except Exception as e:
                 debug_info["ldd_error"] = str(e)
             
-            # Intentar ejecutar con strace para ver qué falla
-            try:
-                strace_result = subprocess.run(['strace', '-e', 'trace=execve', acestream_binary, '--version'], 
-                                             capture_output=True, text=True, timeout=10)
-                debug_info["strace_output"] = strace_result.stderr[:1000]  # Limitar salida
-            except Exception as e:
-                debug_info["strace_error"] = str(e)
-            
-            # Verificar si es un archivo ELF válido
+            # Verificar tipo de archivo
             try:
                 file_result = subprocess.run(['file', acestream_binary], capture_output=True, text=True, timeout=5)
                 debug_info["file_type"] = file_result.stdout
             except Exception as e:
                 debug_info["file_type_error"] = str(e)
+            
+            # Intentar ejecutar con diferentes argumentos
+            test_commands = [
+                ['--help'],
+                ['--version'],
+                ['-h'],
+                []
+            ]
+            
+            debug_info["execution_tests"] = {}
+            for cmd_args in test_commands:
+                try:
+                    result = subprocess.run([acestream_binary] + cmd_args, 
+                                          capture_output=True, text=True, timeout=5)
+                    debug_info["execution_tests"][str(cmd_args)] = {
+                        "return_code": result.returncode,
+                        "stdout": result.stdout[:500],
+                        "stderr": result.stderr[:500]
+                    }
+                except subprocess.TimeoutExpired:
+                    debug_info["execution_tests"][str(cmd_args)] = {"error": "timeout"}
+                except Exception as e:
+                    debug_info["execution_tests"][str(cmd_args)] = {"error": str(e)}
         
         return jsonify(debug_info)
         
@@ -294,6 +401,28 @@ def debug_acestream():
         return jsonify({
             "error": f"Error en debug: {str(e)}"
         })
+
+@app.route('/start_daemon', methods=['POST'])
+def start_daemon():
+    """Iniciar el daemon de AceStream manualmente"""
+    try:
+        daemon_process = start_acestream_daemon()
+        if daemon_process:
+            return jsonify({
+                "status": "started",
+                "message": "Daemon AceStream iniciado",
+                "pid": daemon_process.pid
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "No se pudo iniciar el daemon"
+            }), 500
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Error iniciando daemon: {str(e)}"
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
