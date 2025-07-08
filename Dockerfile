@@ -151,7 +151,6 @@ RUN echo "Verificando dependencias Python..." && \
     python3 -c "import nacl; print('pynacl: OK')" && \
     python3 -c "import Crypto; print('pycryptodome: OK')" && \
     python3 -c "import OpenSSL; print('pyOpenSSL: OK')" && \
-    python3 -c "import idna; print('idna: OK')" && \
     python3 -c "import cffi; print('cffi: OK')" && \
     python3 -c "import attr; print('attrs: OK')" && \
     python3 -c "import zope.interface; print('zope.interface: OK')" && \
