@@ -8,7 +8,7 @@ RUN mkdir -p /var/lib/apt/lists/partial && \
     apt-get update && \
     apt-get install -y python3-pip && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm-rf /var/lib/apt/lists/*
 
 # Instalar dependencias Python
 RUN pip3 install flask psutil requests
