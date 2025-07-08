@@ -24,44 +24,23 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Descargar acestream
-RUN echo "Paso 1: Descargando tar.gz" && \
-    wget -v -O /tmp/acestream.tar.gz https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz && \
-    echo "Paso 2: Descarga completada" && \
-    ls -la /tmp/acestream.tar.gz
+# Solo descargar y ver qué pasa
+RUN wget -v -O /tmp/acestream.tar.gz https://download.acestream.media/linux/acestream_3.2.3_ubuntu_18.04_x86_64_py3.8.tar.gz
 
-# Crear directorio y descomprimir
-RUN echo "Paso 3: Creando directorio y descomprimiendo" && \
-    mkdir -p /opt/acestream && \
+# Ver el archivo descargado
+RUN ls -la /tmp/acestream.tar.gz && file /tmp/acestream.tar.gz
+
+# Descomprimir y ver estructura
+RUN mkdir -p /opt/acestream && \
     tar -xzf /tmp/acestream.tar.gz -C /opt/acestream && \
-    echo "Paso 4: Descompresión completada" && \
-    rm -f /tmp/acestream.tar.gz
+    ls -la /opt/acestream/
 
-# Verificar contenido descomprimido
-RUN echo "Paso 5: Verificando contenido descomprimido" && \
-    ls -la /opt/acestream/ && \
-    echo "Buscando acestreamengine..." && \
-    find /opt/acestream -name "*stream*" -type f && \
-    find /opt/acestream -name "acestreamengine" -type f
+# Ver toda la estructura
+RUN find /opt/acestream -type f | head -20
 
-# Configurar el binario
-RUN echo "Paso 6: Configurando binario" && \
-    ACESTREAM_BIN=$(find /opt/acestream -name "acestreamengine" -type f | head -1) && \
-    echo "Binario encontrado en: $ACESTREAM_BIN" && \
-    chmod +x "$ACESTREAM_BIN" && \
-    ln -sf "$ACESTREAM_BIN" /usr/bin/acestreamengine && \
-    echo "Paso 7: Enlace simbólico creado"
-
-# Verificar instalación
-RUN echo "Paso 8: Verificando instalación" && \
-    which acestreamengine && \
-    ls -la /usr/bin/acestreamengine && \
-    echo "Paso 9: Verificando dependencias" && \
-    ldd /usr/bin/acestreamengine || echo "Algunas dependencias pueden faltar pero continuamos"
-
-# Test final (opcional - comentar si da problemas)
-RUN echo "Paso 10: Test final" && \
-    acestreamengine --version || echo "El binario existe pero puede necesitar configuración adicional"
+# Buscar el binario específico
+RUN find /opt/acestream -name "*stream*" -type f
+RUN find /opt/acestream -name "acestreamengine*" -type f
 
 # Instalar dependencias Python
 RUN pip3 install --no-cache-dir flask psutil requests
